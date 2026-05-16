@@ -319,7 +319,7 @@ int main(void)
       __enable_irq();
 
       int16_t v1, v2, v3, v4;
-      int8_t dir1, dir2, dir3, dir4;
+      // int8_t dir1, dir2, dir3, dir4;
 
       v1 = (int16_t)((local_buf[0] << 8) | local_buf[1]);
       v2 = (int16_t)((local_buf[2] << 8) | local_buf[3]);
@@ -345,10 +345,10 @@ int main(void)
       __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pwm3);
       __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm4);
 
-      dir1 = v1 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
-      dir2 = v2 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
-      dir3 = v3 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
-      dir4 = v4 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      GPIO_PinState dir1 = v1 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      GPIO_PinState dir2 = v2 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      GPIO_PinState dir3 = v3 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      GPIO_PinState dir4 = v4 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
 
       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, dir1);
       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, dir2);
@@ -356,6 +356,12 @@ int main(void)
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, dir4);
 
       // デバック出力
+      /* printf("CNT=%lu CCR1=%lu\n",
+                   TIM3->CNT,
+                   TIM3->CCR1);
+            TIM3->CCR1 = 1500;
+            HAL_Delay(500);*/
+
       printf("pwm1:%d pwm2:%d pwm3:%d pwm4:%d\n", pwm1, pwm2, pwm3, pwm4);
       printf("dir1:%d dir2:%d dir3:%d dir4:%d\n", dir1, dir2, dir3, dir4);
 
