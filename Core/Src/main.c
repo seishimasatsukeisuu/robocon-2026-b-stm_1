@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -74,6 +75,9 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+volatile int32_t count_1 = 0;
+volatile int32_t count_2 = 0;
+
 uint8_t TxData[8];
 void CAN_TX(uint32_t recipient)
 {
@@ -91,14 +95,14 @@ void CAN_TX(uint32_t recipient)
     TxHeader.DLC = 8; // データ長を8byteに設定
     TxHeader.TransmitGlobalTime = DISABLE;
     // 各データ
-    TxData[0];
-    TxData[1] = 0;
-    TxData[2] = 0;
-    TxData[3] = 0;
-    TxData[4] = 0;
-    TxData[5] = 0;
-    TxData[6] = 0;
-    TxData[7] = 0;
+    TxData[0] = (count_1 >> 24) & 0xFF;
+    TxData[1] = (count_1 >> 16) & 0xFF;
+    TxData[2] = (count_1 >> 8) & 0xFF;
+    TxData[3] = count_1 & 0xFF;
+    TxData[4] = (count_2 >> 24) & 0xFF;
+    TxData[5] = (count_2 >> 16) & 0xFF;
+    TxData[6] = (count_2 >> 8) & 0xFF;
+    TxData[7] = count_2 & 0xFF;
     // CANメッセージを送信
     if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK)
     {
@@ -107,8 +111,19 @@ void CAN_TX(uint32_t recipient)
   }
 }
 
-int id;
-int8_t use_data[8];
+typedef struct
+{
+  uint8_t data[8];
+} CanFrame;
+
+volatile CanFrame rx_queue[8];
+volatile uint8_t head;
+volatile uint8_t tail;
+
+volatile uint32_t id;
+// volatile uint8_t use_data[8];
+volatile uint8_t can_buf[8];
+volatile uint8_t can_updated = 0;
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
   CAN_RxHeaderTypeDef RxHeader; // 受信メッセージの情報が格納されるインスタンス
@@ -116,49 +131,113 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
   if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK)
   {
     id = RxHeader.StdId; // RxHeaderの中に入っているidを取り出す
-    if (id == 0x001)
+    if (id == 0x101)
     {
       for (int i = 0; i <= 7; i++)
       {
-        use_data[i] = RxData[i];
+        can_buf[i] = RxData[i];
       }
+      can_updated = 1;
     }
   }
 }
 
-int counter_1;
-int counter_rpm_1;
-int rpm_1;
-int counter_2;
-int counter_rpm_2;
-int rpm_2;
-void onInterrupt_1()
+volatile int8_t flag = 0;
+uint32_t uwIncrementValue = 15000;
+void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  int B = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10);
-  if (B == 1)
+  // CH4 (CC4) の割り込みか判定
+  if (htim->Instance == TIM3 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
   {
-    counter_1++;
-  }
+    // 現在のCCR4の値を取得
+    uint32_t current_ccr = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_4);
 
-  else
-  {
-    counter_1--;
+    // 次に割り込みを発生させるカウント数を計算（オーバーフロー対策）
+    uint32_t next_ccr = (current_ccr + uwIncrementValue) & 0xFFFF;
+
+    // 次の比較値を設定
+    __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_4, next_ccr);
+    // ここにTIM3_CH4の割り込み処理を記述する
+    flag = 1;
   }
 }
 
-void onInterrupt_2()
-{
-  int B = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3);
-  if (B == 1)
-  {
-    counter_2++;
-  }
+volatile uint8_t prev_state_1 = 0;
+volatile uint8_t prev_state_2 = 0;
 
-  else
+void __attribute__((section(".ramfunc"))) Encodercounter_1()
+{
+  uint32_t gpioa = GPIOA->IDR;
+  uint8_t a = (gpioa & GPIO_PIN_3) ? 1 : 0;
+  uint8_t b = (gpioa & GPIO_PIN_10) ? 1 : 0;
+
+  uint8_t curr_state = (a << 1) | b;
+
+  uint8_t transition = (prev_state_1 << 2) | curr_state; //+1-1を決める
+
+  // 正しい遷移のみカウント
+  switch (transition)
   {
-    counter_2--;
+  // 正回転
+  case 0b0001:
+  case 0b0111:
+  case 0b1110:
+  case 0b1000:
+    count_1++;
+    break;
+
+  // 逆回転
+  case 0b0010:
+  case 0b0100:
+  case 0b1101:
+  case 0b1011:
+    count_1--;
+    break;
+
+  default:
+    // ノイズなど（無視）
+    break;
   }
+  prev_state_1 = curr_state;
 }
+
+void __attribute__((section(".ramfunc"))) Encodercounter_2()
+{
+  uint32_t gpioa = GPIOA->IDR;
+  uint32_t gpiob = GPIOB->IDR;
+  uint8_t a = (gpioa & GPIO_PIN_7) ? 1 : 0;
+  uint8_t b = (gpiob & GPIO_PIN_3) ? 1 : 0;
+
+  uint8_t curr_state = (a << 1) | b;
+
+  uint8_t transition = (prev_state_2 << 2) | curr_state; //+1-1を決める
+
+  // 正しい遷移のみカウント
+  switch (transition)
+  {
+  // 正回転
+  case 0b0001:
+  case 0b0111:
+  case 0b1110:
+  case 0b1000:
+    count_2++;
+    break;
+
+  // 逆回転
+  case 0b0010:
+  case 0b0100:
+  case 0b1101:
+  case 0b1011:
+    count_2--;
+    break;
+
+  default:
+    // ノイズなど（無視）
+    break;
+  }
+  prev_state_2 = curr_state;
+}
+
 int _write(int file, char *ptr, int len)
 {
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 10);
@@ -213,10 +292,14 @@ int main(void)
   HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
 
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_OC_Start_IT(&htim3, TIM_CHANNEL_4);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 1000);
+
+  uint8_t last_state_1 = GPIO_PIN_RESET;
+  uint8_t last_state_2 = GPIO_PIN_RESET;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -226,73 +309,87 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    int lx = 0; // doubleだと値が表示されなかった
-    int ly = 0;
-    int theta = 0;
-    int stop = 0;
-    int ping = 0;
-    int dir1;
-    int dir2;
-    int dir3;
-    int dir4;
+    uint8_t local_buf[8];
 
-    lx = use_data[0];
-    ly = use_data[1];
-    theta = use_data[2];
-    stop = use_data[3];
-    ping = use_data[4];
-
-    printf("lx");
-    printf("%d\n", lx);
-    printf("ly");
-    printf("%d\n", ly);
-
-    int v1 = lx * -sqrt(2) / 2 + ly * sqrt(2) / 2 + theta;
-    int v2 = lx * +sqrt(2) / 2 + ly * sqrt(2) / 2 + theta;
-    int v3 = lx * +sqrt(2) / 2 - ly * sqrt(2) / 2 + theta;
-    int v4 = lx * -sqrt(2) / 2 - ly * sqrt(2) / 2 + theta;
-
-    if (abs(v1) > 3000)
-      v1 = 3000;
-    if (abs(v2) > 3000)
-      v1 = 3000;
-    if (abs(v3) > 3000)
-      v1 = 3000;
-    if (abs(v4) > 3000)
-      v1 = 3000;
-
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, abs(v1));
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, abs(v2));
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, abs(v3));
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, abs(v4));
-
-    dir1 = v1 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
-    dir2 = v2 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
-    dir3 = v3 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
-    dir4 = v4 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
-
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, dir1);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, dir2);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, dir3);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, dir4);
-
-    lx = 0;
-    ly = 0;
-
-    if (ping == 1)
+    if (can_updated)
     {
-      TxData[0] = 1;
-    }
-    if (stop == 1)
-    {
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 0);
-      __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+      __disable_irq();
+      memcpy(local_buf, can_buf, 8);
+      can_updated = 0;
+      __enable_irq();
+
+      int16_t v1, v2, v3, v4;
+      int8_t dir1, dir2, dir3, dir4;
+
+      v1 = (int16_t)((local_buf[0] << 8) | local_buf[1]);
+      v2 = (int16_t)((local_buf[2] << 8) | local_buf[3]);
+      v3 = (int16_t)((local_buf[4] << 8) | local_buf[5]);
+      v4 = (int16_t)((local_buf[6] << 8) | local_buf[7]);
+
+      int pwm1 = abs(v1);
+      int pwm2 = abs(v2);
+      int pwm3 = abs(v3);
+      int pwm4 = abs(v4);
+
+      if (pwm1 > 2999)
+        pwm1 = 2999;
+      if (pwm2 > 2999)
+        pwm2 = 2999;
+      if (pwm3 > 2999)
+        pwm3 = 2999;
+      if (pwm4 > 2999)
+        pwm4 = 2999;
+
+      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pwm1);
+      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, pwm2);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pwm3);
+      __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm4);
+
+      dir1 = v1 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      dir2 = v2 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      dir3 = v3 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      dir4 = v4 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
+
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, dir1);
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, dir2);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, dir3);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, dir4);
+
+      // デバック出力
+      printf("pwm1:%d pwm2:%d pwm3:%d pwm4:%d\n", pwm1, pwm2, pwm3, pwm4);
+      printf("dir1:%d dir2:%d dir3:%d dir4:%d\n", dir1, dir2, dir3, dir4);
+
+      can_updated = 0;
     }
 
-    ping = 0;
-    stop = 0;
+    if (flag == 1)
+    {
+      flag = 0;
+      CAN_TX(0x100); // stmのid
+    }
+    /*uint8_t current_state_1 = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10);
+
+        // 前回がLow(Reset)で、今回がHigh(Set)なら立ち上がり
+        if (last_state_1 == GPIO_PIN_RESET && current_state_1 == GPIO_PIN_SET)
+        {
+          // 立ち上がり検出時の処理
+          Encodercounter_1();
+        }
+        last_state_1 = current_state_1;
+
+        uint8_t current_state_2 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3);
+
+        // 前回がLow(Reset)で、今回がHigh(Set)なら立ち上がり
+        if (last_state_2 == GPIO_PIN_RESET && current_state_2 == GPIO_PIN_SET)
+        {
+          // 立ち上がり検出時の処理
+          Encodercounter_2();
+        }
+        last_state_2 = current_state_2;
+
+        // 少し待機（チャタリング対策やCPU負荷低減）
+        HAL_Delay(10);*/
+
     /* //  比較結果を取得 (1: INP > INM, 0: INP < INM ※極性設定による)
         if (HAL_COMP_GetOutputLevel(&hcomp4) == COMP_OUTPUTLEVEL_HIGH)
         {
@@ -388,15 +485,18 @@ static void MX_CAN_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
+  HAL_NVIC_SetPriority(USB_LP_CAN_RX0_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(USB_LP_CAN_RX0_IRQn);
+
   CAN_FilterTypeDef filter;
-  filter.FilterIdHigh = 0x001 << 5;               // フィルターID1
-  filter.FilterIdLow = 0x002 << 5;                // フィルターID2
-  filter.FilterMaskIdHigh = 0x003 << 5;           // フィルターID3
-  filter.FilterMaskIdLow = 0x004 << 5;            // フィルターID4
+  filter.FilterIdHigh = 0x101 << 5;
+  filter.FilterMaskIdHigh = 0x7FF << 5;
+  filter.FilterIdLow = 0x0000;
+  filter.FilterMaskIdLow = 0x0000;
   filter.FilterScale = CAN_FILTERSCALE_16BIT;     // 16モード
   filter.FilterFIFOAssignment = CAN_FILTER_FIFO0; // FIFO0へ格納
   filter.FilterBank = 0;
-  filter.FilterMode = CAN_FILTERMODE_IDLIST; // IDリストモード
+  filter.FilterMode = CAN_FILTERMODE_IDMASK;
   filter.SlaveStartFilterBank = 14;
   filter.FilterActivation = ENABLE;
 
@@ -653,6 +753,10 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_OC_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
@@ -664,6 +768,11 @@ static void MX_TIM3_Init(void)
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -730,9 +839,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5 | GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PA3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  /*Configure GPIO pins : PA3 PA7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
@@ -741,12 +850,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA10 */
@@ -769,10 +872,28 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /*
   HAL_NVIC_SetPriority(EXTI3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  ↓ 下に変える
+
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+*/
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
@@ -782,11 +903,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == GPIO_PIN_3)
   {
-    onInterrupt_1();
+    // onInterrupt_1();
+    Encodercounter_1();
   }
   if (GPIO_Pin == GPIO_PIN_7)
   {
-    onInterrupt_2();
+    // onInterrupt_2();
+    Encodercounter_2();
   }
 }
 /* USER CODE END 4 */

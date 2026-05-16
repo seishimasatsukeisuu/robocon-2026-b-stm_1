@@ -69,6 +69,8 @@ void Error_Handler(void);
 #define SWCLK_GPIO_Port GPIOA
 #define VCP_RX_Pin GPIO_PIN_15
 #define VCP_RX_GPIO_Port GPIOA
+#define can_warikomi_Pin GPIO_PIN_7
+#define can_warikomi_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
