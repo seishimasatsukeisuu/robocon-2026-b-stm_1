@@ -75,141 +75,6 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/*volatile int32_t count_1 = 0;
-volatile int32_t count_2 = 0;
-
-uint8_t TxData[8];
-void CAN_TX(uint32_t recipient)
-{
-  // 送信用インスタンス等
-  CAN_TxHeaderTypeDef TxHeader;
-  uint32_t TxMailbox;
-
-  // 送信メールボックスに空きがあったら送信開始
-  if (0 < HAL_CAN_GetTxMailboxesFreeLevel(&hcan))
-  {
-    // 送信用インスタンスの設定
-    TxHeader.StdId = recipient; // 受取手のCANのID
-    TxHeader.RTR = CAN_RTR_DATA;
-    TxHeader.IDE = CAN_ID_STD;
-    TxHeader.DLC = 8; // データ長を8byteに設定
-    TxHeader.TransmitGlobalTime = DISABLE;
-    // 各データ
-    TxData[0] = (count_1 >> 24) & 0xFF;
-    TxData[1] = (count_1 >> 16) & 0xFF;
-    TxData[2] = (count_1 >> 8) & 0xFF;
-    TxData[3] = count_1 & 0xFF;
-    TxData[4] = (count_2 >> 24) & 0xFF;
-    TxData[5] = (count_2 >> 16) & 0xFF;
-    TxData[6] = (count_2 >> 8) & 0xFF;
-    TxData[7] = count_2 & 0xFF;
-    // CANメッセージを送信
-    if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK)
-    {
-      Error_Handler();
-    }
-  }
-}
-
-
-volatile int8_t flag = 0;
-uint32_t uwIncrementValue = 15000;
-void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  // CH4 (CC4) の割り込みか判定
-  if (htim->Instance == TIM3 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
-  {
-    // 現在のCCR4の値を取得
-    uint32_t current_ccr = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_4);
-
-    // 次に割り込みを発生させるカウント数を計算（オーバーフロー対策）
-    uint32_t next_ccr = (current_ccr + uwIncrementValue) & 0xFFFF;
-
-    // 次の比較値を設定
-    __HAL_TIM_SET_COMPARE(htim, TIM_CHANNEL_4, next_ccr);
-    // ここにTIM3_CH4の割り込み処理を記述する
-    flag = 1;
-  }
-}
-
-volatile uint8_t prev_state_1 = 0;
-volatile uint8_t prev_state_2 = 0;
-
-void __attribute__((section(".ramfunc"))) Encodercounter_1()
-{
-  uint32_t gpioa = GPIOA->IDR;
-  uint8_t a = (gpioa & GPIO_PIN_3) ? 1 : 0;
-  uint8_t b = (gpioa & GPIO_PIN_10) ? 1 : 0;
-
-  uint8_t curr_state = (a << 1) | b;
-
-  uint8_t transition = (prev_state_1 << 2) | curr_state; //+1-1を決める
-
-  // 正しい遷移のみカウント
-  switch (transition)
-  {
-  // 正回転
-  case 0b0001:
-  case 0b0111:
-  case 0b1110:
-  case 0b1000:
-    count_1++;
-    break;
-
-  // 逆回転
-  case 0b0010:
-  case 0b0100:
-  case 0b1101:
-  case 0b1011:
-    count_1--;
-    break;
-
-  default:
-    // ノイズなど（無視）
-    break;
-  }
-  prev_state_1 = curr_state;
-}
-
-void __attribute__((section(".ramfunc"))) Encodercounter_2()
-{
-  uint32_t gpioa = GPIOA->IDR;
-  uint32_t gpiob = GPIOB->IDR;
-  uint8_t a = (gpioa & GPIO_PIN_7) ? 1 : 0;
-  uint8_t b = (gpiob & GPIO_PIN_3) ? 1 : 0;
-
-  uint8_t curr_state = (a << 1) | b;
-
-  uint8_t transition = (prev_state_2 << 2) | curr_state; //+1-1を決める
-
-  // 正しい遷移のみカウント
-  switch (transition)
-  {
-  // 正回転
-  case 0b0001:
-  case 0b0111:
-  case 0b1110:
-  case 0b1000:
-    count_2++;
-    break;
-
-  // 逆回転
-  case 0b0010:
-  case 0b0100:
-  case 0b1101:
-  case 0b1011:
-    count_2--;
-    break;
-
-  default:
-    // ノイズなど（無視）
-    break;
-  }
-  prev_state_2 = curr_state;
-}
-
-*/
-
 typedef struct
 {
   uint8_t data[8];
@@ -340,14 +205,14 @@ int main(void)
       pwm3 = abs(v3);
       pwm4 = abs(v4);
 
-      if (pwm1 > 2999)
-        pwm1 = 2999;
-      if (pwm2 > 2999)
-        pwm2 = 2999;
-      if (pwm3 > 2999)
-        pwm3 = 2999;
-      if (pwm4 > 2999)
-        pwm4 = 2999;
+      if (pwm1 > 2960)
+        pwm1 = 2960;
+      if (pwm2 > 2960)
+        pwm2 = 2960;
+      if (pwm3 > 2960)
+        pwm3 = 2960;
+      if (pwm4 > 2960)
+        pwm4 = 2960;
 
       __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pwm1);
       __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, pwm2);
@@ -391,50 +256,6 @@ int main(void)
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
     }
-    /* if (flag == 1)
-        {
-          flag = 0;
-          CAN_TX(0x100); // stmのid
-        }*/
-
-    /*uint8_t current_state_1 = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10);
-
-        // 前回がLow(Reset)で、今回がHigh(Set)なら立ち上がり
-        if (last_state_1 == GPIO_PIN_RESET && current_state_1 == GPIO_PIN_SET)
-        {
-          // 立ち上がり検出時の処理
-          Encodercounter_1();
-        }
-        last_state_1 = current_state_1;
-
-        uint8_t current_state_2 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3);
-
-        // 前回がLow(Reset)で、今回がHigh(Set)なら立ち上がり
-        if (last_state_2 == GPIO_PIN_RESET && current_state_2 == GPIO_PIN_SET)
-        {
-          // 立ち上がり検出時の処理
-          Encodercounter_2();
-        }
-        last_state_2 = current_state_2;
-
-        // 少し待機（チャタリング対策やCPU負荷低減）
-        HAL_Delay(10);*/
-
-    /* //  比較結果を取得 (1: INP > INM, 0: INP < INM ※極性設定による)
-        if (HAL_COMP_GetOutputLevel(&hcomp4) == COMP_OUTPUTLEVEL_HIGH)
-        {
-          // ハイレベル時の処理
-          printf("HIGH");
-          printf("\n");
-        }
-        else
-        {
-          // ローレベル時の処理
-          printf("LOW");
-          printf("\n");
-        }
-
-        HAL_Delay(10);*/
   }
   /* USER CODE END 3 */
 }
@@ -630,7 +451,7 @@ static void MX_TIM1_Init(void)
   htim1.Init.Period = 2999;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
     Error_Handler();
@@ -711,7 +532,7 @@ static void MX_TIM2_Init(void)
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 2999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
@@ -769,7 +590,7 @@ static void MX_TIM3_Init(void)
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 2999;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
@@ -904,19 +725,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-/*void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  if (GPIO_Pin == GPIO_PIN_3)
-  {
-    // onInterrupt_1();
-    Encodercounter_1();
-  }
-  if (GPIO_Pin == GPIO_PIN_7)
-  {
-    // onInterrupt_2();
-    Encodercounter_2();
-  }
-}*/
 
 /* USER CODE END 4 */
 
