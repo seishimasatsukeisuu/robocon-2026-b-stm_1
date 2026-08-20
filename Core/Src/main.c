@@ -95,7 +95,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
   if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK)
   {
     id = RxHeader.StdId; // RxHeaderの中に入っているidを取り出す
-    if (id == 0x101)
+    if (id == 0x103)
     {
       for (int i = 0; i <= 7; i++)
       {
@@ -168,6 +168,16 @@ int main(void)
 
   uint8_t last_state_1 = GPIO_PIN_RESET;
   uint8_t last_state_2 = GPIO_PIN_RESET;
+
+  static GPIO_PinState dir1_before = GPIO_PIN_RESET;
+  static GPIO_PinState dir2_before = GPIO_PIN_RESET;
+  static GPIO_PinState dir3_before = GPIO_PIN_RESET;
+  static GPIO_PinState dir4_before = GPIO_PIN_RESET;
+
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
+  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 0);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -214,30 +224,42 @@ int main(void)
       if (pwm4 > 2960)
         pwm4 = 2960;
 
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pwm1);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, pwm2);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pwm3);
-      __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm4);
-
       GPIO_PinState dir1 = v1 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
       GPIO_PinState dir2 = v2 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
       GPIO_PinState dir3 = v3 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
       GPIO_PinState dir4 = v4 < 0 ? GPIO_PIN_SET : GPIO_PIN_RESET;
 
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, dir1);
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, dir2);
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, dir3);
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, dir4);
+      if (dir1 != dir1_before || dir2 != dir2_before || dir3 != dir3_before || dir4 != dir4_before)
+      {
+        // まずPWMを停止
+        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
+        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 0);
+        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
 
-      // デバック出力
-      /* printf("CNT=%lu CCR1=%lu\n",
-                   TIM3->CNT,
-                   TIM3->CCR1);
-            TIM3->CCR1 = 1500;
-            HAL_Delay(500);*/
+        // 方向変更
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, dir1);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, dir2);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, dir3);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, dir4);
 
-      printf("pwm1:%d pwm2:%d pwm3:%d pwm4:%d\n", pwm1, pwm2, pwm3, pwm4);
-      printf("dir1:%d dir2:%d dir3:%d dir4:%d\n", dir1, dir2, dir3, dir4);
+        // 少し待つ
+        HAL_Delay(1);
+
+        dir1_before = dir1;
+        dir2_before = dir2;
+        dir3_before = dir3;
+        dir4_before = dir4;
+      }
+
+      // PWM出力
+      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pwm1); // d9
+      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, pwm2); // d1
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pwm3); // a1
+      __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm4); // d12
+
+      // printf("pwm1:%d pwm2:%d pwm3:%d pwm4:%d\n", pwm1, pwm2, pwm3, pwm4);
+      // printf("dir1:%d dir2:%d dir3:%d dir4:%d\n", dir1, dir2, dir3, dir4);
 
       last_can = HAL_GetTick();
     }
@@ -340,7 +362,7 @@ static void MX_CAN_Init(void)
   HAL_NVIC_EnableIRQ(USB_LP_CAN_RX0_IRQn);
 
   CAN_FilterTypeDef filter;
-  filter.FilterIdHigh = 0x101 << 5;
+  filter.FilterIdHigh = 0x103 << 5;
   filter.FilterMaskIdHigh = 0x7FF << 5;
   filter.FilterIdLow = 0x0000;
   filter.FilterMaskIdLow = 0x0000;
